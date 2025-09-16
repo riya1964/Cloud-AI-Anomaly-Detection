@@ -10,8 +10,6 @@ All data is synthetic and for educational/demo purposes only.
 - `logs.db` — SQLite database containing generated logs.
 - `logs.csv` — CSV export of the logs.
 - `CloudAnomalyDetection.ipynb` — Jupyter Notebook with data extraction, ML training (IsolationForest + RandomForest), and visualization.
-- `report.md` — Project report (Markdown). You can convert it to PDF if needed.
-- `slides.md` — Slide contents (Markdown). Convert to PPTX if required.
 
 Conclusion
 
