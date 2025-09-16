@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+import sqlite3
+import random
+import datetime
+import os
+
+DB = 'logs.db'
+
+def create_schema(conn):
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        user TEXT,
+        api TEXT,
+        region TEXT,
+        response_time REAL,
+        bytes INTEGER,
+        status INTEGER,
+        is_anomaly INTEGER DEFAULT 0
+    );
+    """)
+    conn.commit()
+
+def random_time(start, max_minutes=24*60):
+    return start + datetime.timedelta(seconds=random.randint(0, max_minutes*60))
+
+def generate_and_insert(n=6000, anomaly_fraction=0.02, out_db=DB):
+    users = ['alice','bob','carol','dave','svc_backup','admin']
+    apis = ['Login','ListBuckets','GetObject','PutObject','DeleteObject',
+            'CreateVM','DeleteVM','DescribeInstances','AssumeRole']
+    regions = ['us-east-1','eu-west-1','ap-south-1']
+
+    start = datetime.datetime.now() - datetime.timedelta(days=1)
+    rows = []
+    # Normal logs
+    for i in range(n):
+        ts = random_time(start)
+        user = random.choices(users, weights=[25,20,15,10,8,2])[0]
+        api = random.choices(apis, weights=[20,10,25,10,5,5,5,10,10])[0]
+        region = random.choice(regions)
+        response_time = max(0.05, random.gauss(0.3, 0.15))
+        bytes_sent = max(0, int(random.gauss(2048, 800)))
+        status = random.choices([200,200,200,403,500], weights=[85,5,5,3,2])[0]
+        rows.append((ts.isoformat(), user, api, region, round(response_time,3), bytes_sent, status, 0))
+
+    # Inject anomalies
+    num_anom = int(n * anomaly_fraction)
+    # Burst anomalies
+    for _ in range(num_anom//2):
+        burst_user = 'attacker'
+        for j in range(50):
+            ts = random_time(start, max_minutes=60)
+            api = random.choice(['ListBuckets','GetObject','DeleteObject','PutObject'])
+            rows.append((ts.isoformat(), burst_user, api, 'eu-west-1', round(4.0+random.random(),3), 200000, 200, 1))
+    # Large exfil
+    for _ in range(num_anom//2):
+        ts = random_time(start)
+        rows.append((ts.isoformat(), 'compromised_admin', 'GetObject', 'us-east-1', 5.0, 5_000_000, 200, 1))
+
+    random.shuffle(rows)
+    # Insert into sqlite
+    conn = sqlite3.connect(out_db)
+    create_schema(conn)
+    cur = conn.cursor()
+    cur.executemany(\"\"\"
+        INSERT INTO logs (timestamp,user,api,region,response_time,bytes,status,is_anomaly)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    \"\"\", rows)
+    conn.commit()
+    conn.close()
+    print(f"Inserted {len(rows)} log rows into {out_db}")
+
+if __name__ == '__main__':
+    if os.path.exists(DB):
+        os.remove(DB)
+    generate_and_insert(n=6000, anomaly_fraction=0.02)
